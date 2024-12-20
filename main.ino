@@ -21,9 +21,17 @@ int bufferIndex = 0;
 bool receivingFile = false;
 
 // Массив для хранения текстовых сообщений
-String messages[10]; // Массив на 10 сообщений
-int messageCount = 0; // Количество сохраненных сообщений
+String messages[10] = { "1. Запустите Serial Bluetooth Terminal", "2. Подключитесь к E-va и отправьте .bin", "Составить сообщения в eva-card.ru", "4. Наслаждайтесь!" };
+int messageCount = 4; // Количество сохраненных сообщений
 int currentMessageIndex = 0; // Индекс текущего сообщения
+
+// Переменные для работы с кнопкой
+bool lastTouchState = LOW;
+unsigned long pressStartTime = 0;
+bool autoScrollActive = false;
+unsigned long lastScrollTime = 0;
+const unsigned long autoScrollInterval = 10000; // Интервал автоперелистывания 10 сек
+const unsigned long longPressDuration = 3000; // Длительность удержания для активации автоперелистывания 3 сек
 
 void setup() {
   Serial.begin(9600);
@@ -36,10 +44,8 @@ void setup() {
 
   oled.init();
   oled.clear();
-  oled.setScale(3); // Увеличенный размер шрифта
-  oled.setCursor(0, 2.5);
-  oled.print("E-va! 2");
-  oled.update();
+  displaySplashScreen();
+  displayStaticText(messages[currentMessageIndex]);
 }
 
 void loop() {
@@ -67,11 +73,36 @@ void loop() {
     }
   }
 
-  // Проверяем нажатие сенсорной кнопки
-  if (digitalRead(touchPin) == HIGH) {
-    changeMessage(); // Переход к следующему сообщению
-    delay(100); // Задержка для устранения дребезга
+  handleTouchButton();
+
+  if (autoScrollActive && millis() - lastScrollTime >= autoScrollInterval) {
+    lastScrollTime = millis();
+    changeMessage();
   }
+}
+
+void handleTouchButton() {
+  bool touchState = digitalRead(touchPin);
+
+  if (touchState == HIGH && lastTouchState == LOW) {
+    // Кнопка нажата
+    pressStartTime = millis();
+  } else if (touchState == LOW && lastTouchState == HIGH) {
+    // Кнопка отпущена
+    if (millis() - pressStartTime < longPressDuration) {
+      // Короткое нажатие
+      if (!autoScrollActive) {
+        changeMessage();
+      }
+    } else {
+      // Длинное нажатие: переключение режима
+      autoScrollActive = !autoScrollActive;
+      blinkRGB();
+      lastScrollTime = millis();
+    }
+  }
+
+  lastTouchState = touchState;
 }
 
 void handleCommand(String command) {
@@ -80,45 +111,17 @@ void handleCommand(String command) {
     if (messageCount < 10) { // Ограничение на 10 сообщений
       messages[messageCount++] = textToDisplay; // Добавляем сообщение в массив
     }
+    currentMessageIndex = 0; // Сбрасываем индекс на начало
     displayStaticText(messages[currentMessageIndex]);
     Serial.println("Message added: " + textToDisplay);
     return;
   }
-
-  char color = command.charAt(0);
-  int value = command.substring(1).toInt();
-  String colorName;
-
-  switch (color) {
-    oled.setScale(2); // Увеличенный размер шрифта
-    case 'R':
-      analogWrite(redPin, value);
-      colorName = "Red";
-      break;
-    case 'G':
-      analogWrite(greenPin, value);
-      colorName = "Green";
-      break;
-    case 'B':
-      analogWrite(bluePin, value);
-      colorName = "Blue";
-      break;
-    default:
-      colorName = "Unknown";
-      break;
-  }
-
-  oled.clear();
-  oled.setScale(2); // Увеличенный размер шрифта
-  oled.setCursor(0, 0);
-  oled.print("Color:");
-  oled.setCursor(0, 2);
-  oled.print(colorName);
-  oled.update();
 }
 
 void processFileData() {
   String message = "";
+  messageCount = 0; // Очистка старых сообщений
+
   for (int i = 0; i < bufferIndex; i++) {
     if (fileBuffer[i] == '\n') {
       if (messageCount < 10) { // Ограничение на 10 сообщений
@@ -132,13 +135,14 @@ void processFileData() {
   if (message.length() > 0 && messageCount < 10) {
     messages[messageCount++] = message;
   }
+  currentMessageIndex = 0; // Сбрасываем индекс на начало
   displayStaticText(messages[currentMessageIndex]);
 }
 
 void changeMessage() {
-  if (messageCount == 0){
-    
-  }; // Если сообщений нет, ничего не делаем
+  if (messageCount == 0) {
+    return; // Если сообщений нет, ничего не делаем
+  }
   currentMessageIndex = (currentMessageIndex + 1) % messageCount; // Переход к следующему сообщению
   displayStaticText(messages[currentMessageIndex]);
 }
@@ -163,4 +167,26 @@ void displayStaticText(String text) {
   }
 
   oled.update();
+}
+
+void displaySplashScreen() {
+  oled.setScale(3);
+  oled.setCursor(0, 2);
+  oled.print("E-va! 2");
+  oled.update();
+  delay(3000);
+  oled.clear();
+}
+
+void blinkRGB() {
+  for (int i = 0; i < 3; i++) {
+    analogWrite(redPin, 255);
+    analogWrite(greenPin, 255);
+    analogWrite(bluePin, 255);
+    delay(200);
+    analogWrite(redPin, 0);
+    analogWrite(greenPin, 0);
+    analogWrite(bluePin, 0);
+    delay(200);
+  }
 }
